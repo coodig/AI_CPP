@@ -8,7 +8,7 @@
 
 using namespace std;
 
-const string API_KEY = "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"; // 🔐 Replace with your real API key
+const char* API_KEY = getenv("GPT_API_KEY");
 
 void speak(const string& text) {
     string command = "powershell -Command \"Add-Type -AssemblyName System.Speech; "
@@ -30,22 +30,39 @@ string getVoiceInput() {
 }
 
 string askChatGPT(const string& prompt) {
+    // if (!API_KEY) {
+    //     cerr << "❌ GPT_API_KEY environment variable not found.\n";
+    //     exit(1);
+    // }
+    if (!API_KEY) {
+        cerr << "GPT_API_KEY environment variable not found.\n";
+        exit(1);
+    } else {
+        cout << "API key loaded (partial): " << string(API_KEY).substr(0, 10) << "..." << endl;
+    }
+
+    // Write request body to JSON
     ofstream request("request.json");
     request << R"({
         "model": "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": ")" << prompt << R"("}]
+        "messages": [
+            {"role": "system", "content": "You are a helpful AI interviewer. Ask follow-up questions if needed."},
+            {"role": "user", "content": ")" << prompt << R"("}
+        ]
     })";
     request.close();
 
-    string command = "curl https://api.openai.com/v1/chat/completions "
+    // Run cURL to send request
+    string command = "curl -s https://api.openai.com/v1/chat/completions "
                      "-H \"Content-Type: application/json\" "
-                     "-H \"Authorization: Bearer " + API_KEY + "\" "
+                     "-H \"Authorization: Bearer " + string(API_KEY) + "\" "
                      "-d @request.json > response.txt";
     system(command.c_str());
 
-    // Extract response from response.txt
+    // Parse response from response.txt
     ifstream res("response.txt");
     string line, result;
+    bool capture = false;
     while (getline(res, line)) {
         if (line.find("\"content\"") != string::npos) {
             size_t start = line.find(":") + 2;
@@ -59,11 +76,21 @@ string askChatGPT(const string& prompt) {
     return result;
 }
 
+void logConversation(const string& user, const string& bot) {
+    ofstream log("conversation_log.txt", ios::app);
+    if (log.is_open()) {
+        log << "You: " << user << endl;
+        log << "AI: " << bot << endl << endl;
+        log.close();
+    }
+}
+
 int main() {
+    system("chcp 65001 > nul");
     speak("Hello! I'm your interview assistant. Let's begin.");
 
     while (true) {
-        cout << "\n🎙️ Speak now...\n";
+        cout << "\nSpeak now...\n";
         string userInput = getVoiceInput();
         if (userInput.empty()) {
             speak("I didn't catch that. Try again.");
@@ -71,22 +98,18 @@ int main() {
         }
 
         cout << "You: " << userInput << endl;
-
         string reply = askChatGPT(userInput);
 
         if (!reply.empty()) {
             cout << "AI: " << reply << endl;
             speak(reply);
+            logConversation(userInput, reply);
         } else {
             speak("Sorry, I couldn’t get a response.");
         }
 
-        // Optional delay
         this_thread::sleep_for(chrono::seconds(1));
     }
 
     return 0;
 }
-
-// g++ ai_voice.cpp -o ai_voice
-// ./ai_voice
